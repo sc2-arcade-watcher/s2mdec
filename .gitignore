@@ -1,0 +1,10 @@
+.vscode/
+ignore/
+*.exe
+*.s2mh
+*.s2mi
+*.s2ml
+*.wasm
+*.o
+*.so
+*.dll
