@@ -15,10 +15,12 @@ import (
 )
 
 var args []string // non-flag args
-var compact bool
+var bFlagCompact bool
+var bFlagUnlabeled bool
 
 func init() {
-	flag.BoolVar(&compact, "c", false, "print out compact json")
+	flag.BoolVar(&bFlagCompact, "c", false, "Compact: print out json without indentations")
+	flag.BoolVar(&bFlagUnlabeled, "u", false, "Unlabeled: print out json labeled with numbers instead of each field's respective name (applies only to s2mi and s2mh files)")
 	flag.Parse()
 	args = flag.Args()
 }
@@ -32,7 +34,7 @@ func main() {
 	//
 	// len args
 	switch len(args) {
-	case 1:
+	case 1: // decode a single file
 		// fileIn
 		fileIn, err := os.Open(args[0])
 		if err != nil {
@@ -49,57 +51,77 @@ func main() {
 		// switch ext
 		switch strings.ToLower(filepath.Ext(fileIn.Name())) {
 		case ".s2mi":
+			// unlabeled
 			unlabeled, ok := s2mdec.NewVersionedDec(dataIn).ReadStruct().(s2prot.Struct)
 			if !ok {
 				log.Println("invalid s2mi")
 				return
 			}
-			labeled, err := s2mdec.ReadS2MI(unlabeled)
-			if err != nil {
-				log.Println("s2mi", err)
-				return
+			// bFlagUnlabeled
+			var output s2prot.Struct
+			if bFlagUnlabeled {
+				output = unlabeled
+			} else {
+				labeled, err := s2mdec.ReadS2MI(unlabeled)
+				if err != nil {
+					log.Println("s2mi:", err)
+					return
+				}
+				output = labeled
 			}
-			if compact {
-				rawJSON, errJSON := json.Marshal(labeled)
+			// bFlagCompact
+			if bFlagCompact {
+				rawJSON, errJSON := json.Marshal(output)
 				if errJSON != nil {
-					log.Println("s2mi", err)
+					log.Println("s2mi:", errJSON)
 					return
 				}
 				fmt.Print(string(rawJSON))
 			} else {
-				fmt.Print(labeled)
+				fmt.Print(output)
 			}
 		case ".s2mh":
+			// unlabeled
 			unlabeled, ok := s2mdec.NewVersionedDec(dataIn).ReadStruct().(s2prot.Struct)
 			if !ok {
 				log.Println("invalid s2mh")
 				return
 			}
-			labeled, err := s2mdec.ReadS2MH(unlabeled)
-			if err != nil {
-				log.Println("s2mh:", err)
-				return
-			}
-			if compact {
-				rawJSON, errJSON := json.Marshal(labeled)
-				if errJSON != nil {
+			// bFlagUnlabeled
+			var output s2prot.Struct
+			if bFlagUnlabeled {
+				output = unlabeled
+			} else {
+				labeled, err := s2mdec.ReadS2MH(unlabeled)
+				if err != nil {
 					log.Println("s2mh:", err)
+					return
+				}
+				output = labeled
+			}
+			// bFlagCompact
+			if bFlagCompact {
+				rawJSON, errJSON := json.Marshal(output)
+				if errJSON != nil {
+					log.Println("s2mh:", errJSON)
 					return
 				}
 				fmt.Print(string(rawJSON))
 			} else {
-				fmt.Print(labeled)
+				fmt.Print(output)
 			}
 		case ".s2ml":
+			// translation
 			translation, err := s2mdec.ReadS2ML(dataIn)
 			if err != nil {
 				log.Println("s2ml:", err)
 				return
 			}
-			if compact {
+			// bFlagCompact
+			if bFlagCompact {
 				rawJSON, errJSON := json.Marshal(translation)
 				if errJSON != nil {
-					log.Println("s2ml:", err)
+					log.Println("s2ml:", errJSON)
 					return
 				}
 				fmt.Print(string(rawJSON))
@@ -110,7 +132,7 @@ func main() {
 			log.Println("Unsupported file extension.")
 			return
 		}
-	case 2:
+	case 2: // merging two files s2mh and s2ml
 		const nFiles = 2
 		fileIn := make([]*os.File, nFiles)
 		dataIn := make([][]byte, nFiles)
@@ -132,7 +154,7 @@ func main() {
 		}
 		// prepare
 		s2mh, s2ml := s2prot.Struct(nil), s2mdec.MapLocale(nil)
-		// switch ext
+		// switch ext s2mh
 		switch strings.ToLower(filepath.Ext(fileIn[0].Name())) {
 		case ".s2mh":
 			unlabeled, ok := s2mdec.NewVersionedDec(dataIn[0]).ReadStruct().(s2prot.Struct)
@@ -150,7 +172,7 @@ func main() {
 			log.Println("Unsupported file extension.")
 			return
 		}
-		// switch ext
+		// switch ext s2ml
 		switch strings.ToLower(filepath.Ext(fileIn[1].Name())) {
 		case ".s2ml":
 			var err error
@@ -163,22 +185,24 @@ func main() {
 			log.Println("Unsupported file extension.")
 			return
 		}
+		// merged
 		merged, err := s2mdec.S2MHApplyS2ML(s2mh, s2ml, nil)
 		if err != nil {
 			log.Println("s2mh plus s2ml:", err)
 			return
 		}
-		if compact {
+		// bFlagCompact
+		if bFlagCompact {
 			rawJSON, errJSON := json.Marshal(merged)
 			if errJSON != nil {
-				log.Println("s2mh plus s2ml:", err)
+				log.Println("s2mh plus s2ml:", errJSON)
 				return
 			}
 			fmt.Print(string(rawJSON))
 		} else {
 			fmt.Print(merged)
 		}
-	default:
+	default: // unexpected len(args)
 		log.Println("Invalid argument.")
 		return
 	}

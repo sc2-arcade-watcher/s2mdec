@@ -1,6 +1,7 @@
 package s2mdec
 
 import (
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -12,6 +13,15 @@ import (
 	"github.com/beevik/etree"
 	"github.com/icza/s2prot"
 )
+
+// Representation of a decoded struct types.
+// - Struct:   map[string]interface{}
+// - Array:    []interface{}           (Not []string)
+// - Integer:  int64                   (Not int)
+// - String:   string                  (Not []byte only castable)
+// - Blob:     string                  (Not []byte only castable)
+// - Bytes:    string                  (Not []byte only castable)
+// - BitArray: s2prot.BitArr           (Value stored in s2prot.BitArr.Data)
 
 // ----------------------------------------------------------
 
@@ -64,7 +74,7 @@ func toBool(d int) (bool, error) {
 
 // verOf arg as in max(dict.keys()).
 func verOf(unlabeled s2prot.Struct) (int, error) {
-	ver := 0.0
+	ver := -1.0
 	for k := range unlabeled {
 		n, err := strconv.Atoi(k)
 		if err != nil { // key was not a number
@@ -72,7 +82,10 @@ func verOf(unlabeled s2prot.Struct) (int, error) {
 		}
 		ver = math.Max(float64(ver), float64(n))
 	}
-	return int(ver), nil
+	if ver >= 0.0 { // not empty struct
+		return int(ver), nil
+	}
+	return -1, errors.New("empty struct")
 }
 
 // readArrayOfStructs is newArrayOfStructsFromArrayOfStructs.
@@ -106,14 +119,14 @@ func readArrayOfStringBytes(fnMap func([]byte) s2prot.Struct, arr []interface{})
 }
 
 // readArrayOfStrings is newArrayOfStringsFromArrayOfStrings.
-func readArrayOfStrings(fnMap func(string) string, arr []interface{}) []string {
+func readArrayOfStrings(fnMap func(string) string, arr []interface{}) []interface{} {
 	defer func() {
 		if r := recover(); r != nil {
 			panic(fmt.Errorf("readArrayOfStrings: %v", r))
 		}
 	}()
 	//
-	ret := make([]string, len(arr))
+	ret := make([]interface{}, len(arr))
 	for i, v := range arr {
 		ret[i] = fnMap(v.(string))
 	}
@@ -185,7 +198,7 @@ func readLocalizationTableKey(unlabeled s2prot.Struct) s2prot.Struct {
 		panic(makeErrStructLen(unlabeled)) // throw
 	}
 	return s2prot.Struct{
-		"color": unlabeled.Value("0"), // of what type is this?
+		"color": unlabeled.Int("0"),
 		"table": unlabeled.Int("1"),
 		"index": unlabeled.Int("2"),
 	}
@@ -291,7 +304,7 @@ func readPremiumInfo(unlabeled s2prot.Struct) s2prot.Struct {
 		panic(makeErrVer(ver)) // throw
 	}
 	return s2prot.Struct{
-		"license": unlabeled.Value("0"), // of what type is this?
+		"license": unlabeled.Int("0"),
 	}
 }
 
@@ -337,15 +350,6 @@ func readAttributeValueDefinition(unlabeled s2prot.Struct) s2prot.Struct {
 		"value":  strings.Trim(unlabeled.Stringv("0"), "\x00"),
 		"visual": readAttributeVisual(unlabeled.Structv("1")),
 	}
-	// def read_attribute_value_definition(data):
-	//     ver = max(data.keys())
-	//     assert ver in [1, 2]
-	//     if ver >= 2:
-	//         assert len(data[2]) == 0
-	//     return {
-	//         'value': data[0].strip(b'\x00').decode('ascii'),
-	//         'visual': read_attribute_visual(data[1])
-	//     }
 }
 
 // throws error
@@ -356,29 +360,39 @@ func readAttributeDefinition(unlabeled s2prot.Struct) s2prot.Struct {
 		}
 	}()
 	//
-	mapVisibility := map[int]string{ // VISIBILITY_TYPE
-		0: "none",
-		1: "self",
-		2: "host",
-		3: "all",
-	}
+	// alias definition
+	type arbitration = int64
+	const (
+		arbitrationAlways arbitration = iota // 0x00 always
+		arbitrationFCFS                      // 0x01 first come first serve
+	)
+	//
+	type visibility = int64
+	const (
+		visibilityNone visibility = iota // 0: "none",
+		visibilitySelf                   // 1: "self",
+		visibilityHost                   // 2: "host",
+		visibilityAll                    // 3: "all",
+	)
+	//
+	type flagOption = int64
+	const (
+		flagOptionUnknown          flagOption = 0x01 // 0x01 unknown
+		flagOptionLockedWhenPublic flagOption = 0x02 // 0x02 locked when public
+		flagOptionHidden           flagOption = 0x04 // 0x04 hidden
+	)
+	//
 	return s2prot.Struct{
-		"instance":      readAttributeLink(unlabeled.Structv("0")),
-		"values":        readArrayOfStructs(readLocalizationLink, unlabeled.Array("1")),
-		"visual":        readAttributeVisual(unlabeled.Structv("2")),
-		"_requirements": unlabeled.Stringv("3"), // string?
-		"arbitration":   unlabeled.Value("4"),   // of what type is this?
-		// 0x00 always
-		// 0x01 FCFS; first come first serve
-		"visibility": mapVisibility[int(unlabeled.Int("5"))], // int?
-		"access":     mapVisibility[int(unlabeled.Int("6"))], // int?
-		"options":    unlabeled.Value("7"),                   // of what type is this?
-		// options flags:
-		// 0x01 unknown
-		// 0x02 locked when public
-		// 0x04 hidden
-		"default":   readAttributeDefaultValueOrValues(unlabeled.Value("8")),
-		"sortOrder": unlabeled.Value("9"), // of what type is this?
+		"instance": readAttributeLink(unlabeled.Structv("0")),
+		"values":   readArrayOfStructs(readAttributeValueDefinition, unlabeled.Array("1")),
+		"visual":   readAttributeVisual(unlabeled.Structv("2")),
+		// "_requirements": unlabeled.Value("3"), // unknown type
+		"arbitration": arbitration(unlabeled.Int("4")),
+		"visibility":  visibility(unlabeled.Int("5")),
+		"access":      visibility(unlabeled.Int("6")),
+		"options":     flagOption(unlabeled.Int("7")),
+		"default":     readAttributeDefaultValueOrValues(unlabeled.Value("8")),
+		"sortOrder":   unlabeled.Int("9"),
 	}
 }
 
@@ -411,8 +425,8 @@ func readAttributeDefaultValue(unlabeled s2prot.Struct) s2prot.Struct {
 		panic(makeErrStructLen(unlabeled)) // throw
 	}
 	return s2prot.Struct{
-		"index":           unlabeled.Int("0"),
-		"_unk_attr_val_1": unlabeled.Int("1"),
+		"index": unlabeled.Int("0"),
+		// "_unk_attr_val_1": unlabeled.Int("1"),
 	}
 }
 
@@ -471,8 +485,8 @@ func readVariantAttributeLocked(unlabeled s2prot.Struct) s2prot.Struct {
 		panic(makeErrStructLen(unlabeled)) // throw
 	}
 	return s2prot.Struct{
-		"attribute": readAttributeLink(unlabeled.Structv("0")),
-		"value":     unlabeled.BitArr("1"),
+		"attribute":    readAttributeLink(unlabeled.Structv("0")),
+		"lockedScopes": int64(binary.BigEndian.Uint16(unlabeled.BitArr("1").Data)), // 16-bit integer whose bit is for each slot in lobby
 	}
 }
 
@@ -538,7 +552,12 @@ func readVariantInfo(unlabeled s2prot.Struct) s2prot.Struct {
 		ret["maxOpenSlots"] = unlabeled.Int("13")
 	}
 	if ver >= 14 {
-		ret["premiumInfo"] = readPremiumInfo(unlabeled.Structv("14"))
+		ret["premiumInfo"] = func(argStruct s2prot.Struct) s2prot.Struct {
+			if argStruct == nil {
+				return nil
+			}
+			return readPremiumInfo(argStruct)
+		}(unlabeled.Structv("14"))
 	}
 	if ver >= 15 {
 		ret["teamNames"] = readArrayOfStructs(readLocalizationTableKey, unlabeled.Array("15"))
@@ -554,18 +573,20 @@ func readArcadeSectionHeader(unlabeled s2prot.Struct) s2prot.Struct {
 		}
 	}()
 	//
-	mapListFormat := map[int]string{ // LIST_TYPE
-		0: "bulleted",
-		1: "numbered",
-		2: "none",
-	}
+	type listFormat = int64 // LIST_TYPE
+	const (
+		listFormatBulleted listFormat = iota // 0: "bulleted",
+		listFormatNumbered                   // 1: "numbered",
+		listFormatNone                       // 2: "none",
+	)
+	//
 	if len(unlabeled) != 4 { // assert
 		panic(makeErrStructLen(unlabeled)) // throw
 	}
 	return s2prot.Struct{
 		"title":       readLocalizationTableKey(unlabeled.Structv("0")),
 		"startOffset": unlabeled.Int("1"),
-		"listType":    mapListFormat[int(unlabeled.Int("2"))],
+		"listType":    listFormat(unlabeled.Int("2")),
 		"subtitle":    readLocalizationTableKey(unlabeled.Structv("3")),
 	}
 }
@@ -626,20 +647,37 @@ func readArcadeTutorialLink(unlabeled s2prot.Struct) s2prot.Struct {
 		panic(makeErrVer(ver)) // throw
 	}
 	// looks like link to map, but it's an array..
-	if a := unlabeled.Array("2"); len(a) != 1 { // assert // array? struct?
-		panic(makeErrArrayLen(a)) // throw // array? struct?
+	arr := unlabeled.Array("2")
+	if len(arr) != 1 { // assert
+		panic(makeErrArrayLen(arr)) // throw
 	}
-	if a := unlabeled.Array("2", "0"); len(a) != 2 { // assert // array? struct?
-		panic(makeErrArrayLen(a)) // throw // array? struct?
+	// data["2"][0]
+	svNut := arr[0].(s2prot.Struct)
+	if len(svNut) != 2 { // assert
+		panic(makeErrStructLen(svNut)) // throw
 	}
-	if a := unlabeled.Array("2", "0", "1"); len(a) != 0 { // assert // array? struct?
-		panic(makeErrArrayLen(a)) // throw // array? struct?
+	// data["2"][0]["1"]
+	if v := svNut.Int("1"); v != 0 { // assert
+		panic(fmt.Errorf(`unexpected value of data["2"][0]["1"]: %v`, v)) // throw
 	}
 	return s2prot.Struct{
-		"variantIndex": unlabeled.Value("0"), // of what type is this?
+		"variantIndex": unlabeled.Int("0"),
 		"speed":        unlabeled.Stringv("1"),
-		"map":          readInstanceHeader(unlabeled.Structv("2", "0", "0")),
+		"map":          readInstanceHeader(svNut.Structv("0")), // data["2"][0]["0"]
 	}
+	// "7": {
+	// 	"0": 1,
+	// 	"1": "Fasr",
+	// 	"2": [               # arr
+	// 		{                # svNut
+	// 			"0": {
+	// 				"0": 210321,
+	// 				"1": 65551
+	// 			},
+	// 			"1": 0
+	// 		}
+	// 	]
+	// },
 }
 
 // throws error
@@ -686,7 +724,7 @@ func ReadS2MH(unlabeled s2prot.Struct) (retStruct s2prot.Struct, retError error)
 	//
 	// assert arg
 	if len(unlabeled) != 2 {
-		return nil, fmt.Errorf("unexpected struct len: %d", len(unlabeled))
+		return nil, makeErrStructLen(unlabeled)
 	}
 	// set arg
 	if unlabeled = unlabeled.Structv("0"); unlabeled == nil {
@@ -724,24 +762,31 @@ func ReadS2MH(unlabeled s2prot.Struct) (retStruct s2prot.Struct, retError error)
 			}
 		}(unlabeled.Structv("9")),
 		"tileset":             readLocalizationTableKey(unlabeled.Structv("10")),
-		"defaultVariantIndex": unlabeled.Value("12"), // of what type is this?
+		"defaultVariantIndex": unlabeled.Int("12"),
 		"variants":            readArrayOfStructs(readVariantInfo, unlabeled.Array("13")),
 	}
-	if v := unlabeled.Value("6"); v != nil {
-		retStruct["_unk6"] = fmt.Sprintf("%s", v)
-	}
+	// if v := unlabeled.Value("6"); v != nil {
+	// 	retStruct["_unk6"] = fmt.Sprintf("%s", v)
+	// }
 	/*
 		# TODO: 7 - score IDs and such?
 		retStruct["resultDefinitions"] = []
 	*/
-	if arr := unlabeled.Array("11"); arr != nil {
-		retStruct["specialTags"] = func(argArray []interface{}) []string {
-			if argArray == nil {
-				return []string{} // an empty list is returned instead of nil
-			}
-			return readArrayOfStrings(func(s string) string { return strings.Trim(s, "\x00") }, argArray)
-		}(arr)
-	}
+	retStruct["specialTags"] = func(arg interface{}) []interface{} {
+		// if 11 in data:
+		// o['specialTags'] = [data[11].decode('ascii')] if data[11] is not None else []
+		if arg == nil {
+			return []interface{}{} // an empty list is returned instead of nil
+		}
+		switch argDiscerned := arg.(type) {
+		case string:
+			return []interface{}{argDiscerned}
+		case []interface{}: // ?
+			return readArrayOfStrings(func(s string) string { return strings.Trim(s, "\x00") }, argDiscerned) // ?
+		default:
+			panic(fmt.Errorf("unexpected type of special tags: %T", argDiscerned))
+		}
+	}(unlabeled.Value("11"))
 	if ver >= 14 {
 		retStruct["extraDependencies"] = readArrayOfStructs(readInstanceHeader, unlabeled.Array("14"))
 	}
@@ -756,7 +801,7 @@ func ReadS2MH(unlabeled s2prot.Struct) (retStruct s2prot.Struct, retError error)
 		retStruct["relevantPermissions"] = readArrayOfStructs(func(argStruct s2prot.Struct) s2prot.Struct {
 			return s2prot.Struct{
 				"name": strings.Trim(argStruct.Stringv("0"), "\x00"),
-				"id":   argStruct.Value("1"), // of what type is this?
+				"id":   argStruct.Int("1"),
 			}
 		}, unlabeled.Array("16"))
 		// skip 17?
@@ -865,7 +910,7 @@ func ReadS2MI(unlabeled s2prot.Struct) (retStruct s2prot.Struct, retError error)
 		"labels":                unlabeled.Array("17"),    // readArrayOfStrings(func(s string) string { return s }, unlabeled.Array("17")),
 		"isMelee":               unlabeled.Int("18") != 0, // bool
 		"isCluster":             unlabeled.Int("19") != 0, // bool
-		"clusterParent":         unlabeled.Value("20"),    // of what type is this?
+		"clusterParent":         unlabeled.Int("20"),
 		"clusterChildren":       unlabeled.Array("21"),
 		"isHiddenLobby":         unlabeled.Int("22") != 0, // bool
 		"isExtensionMod": func(argStruct s2prot.Struct) bool {
@@ -877,9 +922,9 @@ func ReadS2MI(unlabeled s2prot.Struct) (retStruct s2prot.Struct, retError error)
 		}(unlabeled),
 	}
 	if ver >= 24 {
-		retStruct["transitionId"] = unlabeled.Value("24")           // of what type is this?
-		retStruct["lastPublishTime"] = unlabeled.Value("25")        // of what type is this?
-		retStruct["firstPublicPublishTime"] = unlabeled.Value("26") // of what type is this?
+		retStruct["transitionId"] = unlabeled.Int("24")
+		retStruct["lastPublishTime"] = unlabeled.Int("25")
+		retStruct["firstPublicPublishTime"] = unlabeled.Int("26")
 	}
 	// catch and return
 	return retStruct, retError
@@ -968,7 +1013,7 @@ func S2MHApplyS2ML(s2mhLabeled s2prot.Struct, translation MapLocale, targetField
 				"website": true
 			}
 		}`), &targetFields); err != nil {
-			panic(err) //
+			return nil, fmt.Errorf("cannot determine target fields: %v", err)
 		}
 	}
 	// recursive
