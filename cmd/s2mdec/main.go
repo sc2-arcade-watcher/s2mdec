@@ -3,7 +3,7 @@ package main
 import (
 	"encoding/json"
 	"flag"
-	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"os"
@@ -70,16 +70,11 @@ func main() {
 				output = labeled
 			}
 			// bFlagCompact
-			if bFlagCompact {
-				rawJSON, errJSON := json.Marshal(output)
-				if errJSON != nil {
-					log.Println("s2mi:", errJSON)
-					return
-				}
-				fmt.Print(string(rawJSON))
-			} else {
-				fmt.Print(output)
+			if errJSON := writeJSON(os.Stdout, output, !bFlagCompact); errJSON != nil {
+				log.Println("s2mh plus s2ml:", errJSON)
+				return
 			}
+			return
 		case ".s2mh":
 			// unlabeled
 			unlabeled, ok := s2mdec.NewVersionedDec(dataIn).ReadStruct().(s2prot.Struct)
@@ -100,16 +95,11 @@ func main() {
 				output = labeled
 			}
 			// bFlagCompact
-			if bFlagCompact {
-				rawJSON, errJSON := json.Marshal(output)
-				if errJSON != nil {
-					log.Println("s2mh:", errJSON)
-					return
-				}
-				fmt.Print(string(rawJSON))
-			} else {
-				fmt.Print(output)
+			if errJSON := writeJSON(os.Stdout, output, !bFlagCompact); errJSON != nil {
+				log.Println("s2mh plus s2ml:", errJSON)
+				return
 			}
+			return
 		case ".s2ml":
 			// translation
 			translation, err := s2mdec.ReadS2ML(dataIn)
@@ -118,16 +108,11 @@ func main() {
 				return
 			}
 			// bFlagCompact
-			if bFlagCompact {
-				rawJSON, errJSON := json.Marshal(translation)
-				if errJSON != nil {
-					log.Println("s2ml:", errJSON)
-					return
-				}
-				fmt.Print(string(rawJSON))
-			} else {
-				fmt.Print(translation)
+			if errJSON := writeJSON(os.Stdout, translation, !bFlagCompact); errJSON != nil {
+				log.Println("s2mh plus s2ml:", errJSON)
+				return
 			}
+			return
 		default:
 			log.Println("Unsupported file extension.")
 			return
@@ -192,18 +177,24 @@ func main() {
 			return
 		}
 		// bFlagCompact
-		if bFlagCompact {
-			rawJSON, errJSON := json.Marshal(merged)
-			if errJSON != nil {
-				log.Println("s2mh plus s2ml:", errJSON)
-				return
-			}
-			fmt.Print(string(rawJSON))
-		} else {
-			fmt.Print(merged)
+		if errJSON := writeJSON(os.Stdout, merged, !bFlagCompact); errJSON != nil {
+			log.Println("s2mh plus s2ml:", errJSON)
+			return
 		}
+		return
 	default: // unexpected len(args)
 		log.Println("Invalid argument.")
 		return
 	}
+}
+
+func writeJSON(w io.Writer, v interface{}, indent bool) error {
+	enc := json.NewEncoder(w)
+	enc.SetEscapeHTML(false)
+	if indent {
+		enc.SetIndent("", "  ")
+	} else {
+		enc.SetIndent("", "")
+	}
+	return enc.Encode(v)
 }

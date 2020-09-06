@@ -2,7 +2,7 @@
 
 [![GoDoc](https://godoc.org/github.com/sc2-arcade-watcher/s2mdec?status.svg)](https://godoc.org/github.com/sc2-arcade-watcher/s2mdec)
 
-Package s2mdec is a decoder of s2mi and s2mh files. Go port of [s2m-decoder](https://github.com/SC2-Arcade-Watcher/s2m-decoder).
+Package s2mdec is a decoder of s2mi and s2mh files. Go port of [s2m-decoder](https://github.com/sc2-arcade-watcher/s2m-decoder).
 
 - - -
 

@@ -15,13 +15,15 @@ import (
 )
 
 // Representation of a decoded struct types.
+// - Null:     nil                     (untyped nil)
 // - Struct:   map[string]interface{}
 // - Array:    []interface{}           (Not []string)
 // - Integer:  int64                   (Not int)
 // - String:   string                  (Not []byte only castable)
 // - Blob:     string                  (Not []byte only castable)
 // - Bytes:    string                  (Not []byte only castable)
-// - BitArray: s2prot.BitArr           (Value stored in s2prot.BitArr.Data)
+// - BitArray: s2prot.BitArr           (Value stored in s2prot.BitArr.Data []byte)
+// - Optional: (any of above)
 
 // ----------------------------------------------------------
 
@@ -198,7 +200,7 @@ func readLocalizationTableKey(unlabeled s2prot.Struct) s2prot.Struct {
 		panic(makeErrStructLen(unlabeled)) // throw
 	}
 	return s2prot.Struct{
-		"color": unlabeled.Int("0"),
+		"color": unlabeled.Value("0"), // optional: int or nil
 		"table": unlabeled.Int("1"),
 		"index": unlabeled.Int("2"),
 	}
@@ -391,7 +393,7 @@ func readAttributeDefinition(unlabeled s2prot.Struct) s2prot.Struct {
 		"visibility":  visibility(unlabeled.Int("5")),
 		"access":      visibility(unlabeled.Int("6")),
 		"options":     flagOption(unlabeled.Int("7")),
-		"default":     readAttributeDefaultValueOrValues(unlabeled.Value("8")),
+		"default":     readAttributeDefaultValueOrValues(unlabeled.Value("8")), // optional type
 		"sortOrder":   unlabeled.Int("9"),
 	}
 }
@@ -469,7 +471,7 @@ func readVariantAttributeDefaults(unlabeled s2prot.Struct) s2prot.Struct {
 	}
 	return s2prot.Struct{
 		"attribute": readAttributeLink(unlabeled.Structv("0")),
-		"value":     readAttributeDefaultValueOrValues(unlabeled.Value("1")),
+		"value":     readAttributeDefaultValueOrValues(unlabeled.Value("1")), // optional type
 	}
 }
 
@@ -503,7 +505,7 @@ func readVariantAttributeVisibility(unlabeled s2prot.Struct) s2prot.Struct {
 	}
 	return s2prot.Struct{
 		"attribute": readAttributeLink(unlabeled.Structv("0")),
-		"hidden":    unlabeled.Int("1"), // int? bool?
+		"hidden":    unlabeled.Int("1"),
 	}
 }
 
@@ -546,10 +548,10 @@ func readVariantInfo(unlabeled s2prot.Struct) s2prot.Struct {
 		ret["achievementTags"] = readArrayOfStrings(func(s string) string { return strings.Trim(s, "\x00") }, unlabeled.Array("11"))
 	}
 	if ver >= 12 {
-		ret["maxHumanPlayers"] = unlabeled.Int("12")
+		ret["maxHumanPlayers"] = unlabeled.Value("12") // optional: int or nil
 	}
 	if ver >= 13 {
-		ret["maxOpenSlots"] = unlabeled.Int("13")
+		ret["maxOpenSlots"] = unlabeled.Value("13") // optional: int or nil
 	}
 	if ver >= 14 {
 		ret["premiumInfo"] = func(argStruct s2prot.Struct) s2prot.Struct {
@@ -786,7 +788,7 @@ func ReadS2MH(unlabeled s2prot.Struct) (retStruct s2prot.Struct, retError error)
 		default:
 			panic(fmt.Errorf("unexpected type of special tags: %T", argDiscerned))
 		}
-	}(unlabeled.Value("11"))
+	}(unlabeled.Value("11")) // optional type
 	if ver >= 14 {
 		retStruct["extraDependencies"] = readArrayOfStructs(readInstanceHeader, unlabeled.Array("14"))
 	}
@@ -952,7 +954,9 @@ func ReadS2ML(rawXML []byte) (retTextByID MapLocale, retError error) {
 	if err := doc.ReadFromBytes(rawXML); err != nil {
 		return nil, fmt.Errorf("cannot parse xml: %v", err)
 	}
-	if children := doc.FindElement("Locale").ChildElements(); len(children) > 0 {
+	if elemRoot := doc.FindElement("Locale"); elemRoot == nil {
+		return nil, errors.New("cannot find root element Locale")
+	} else if children := elemRoot.ChildElements(); len(children) > 0 {
 		retTextByID = map[string]string{}
 		for _, child := range children {
 			retTextByID[child.SelectAttrValue("id", "")] = child.Text()
