@@ -71,7 +71,7 @@ func main() {
 			}
 			// bFlagCompact
 			if errJSON := writeJSON(os.Stdout, output, !bFlagCompact); errJSON != nil {
-				log.Println("s2mh plus s2ml:", errJSON)
+				log.Println("s2mi:", errJSON)
 				return
 			}
 			return
@@ -96,7 +96,7 @@ func main() {
 			}
 			// bFlagCompact
 			if errJSON := writeJSON(os.Stdout, output, !bFlagCompact); errJSON != nil {
-				log.Println("s2mh plus s2ml:", errJSON)
+				log.Println("s2mh:", errJSON)
 				return
 			}
 			return
@@ -109,7 +109,7 @@ func main() {
 			}
 			// bFlagCompact
 			if errJSON := writeJSON(os.Stdout, translation, !bFlagCompact); errJSON != nil {
-				log.Println("s2mh plus s2ml:", errJSON)
+				log.Println("s2ml:", errJSON)
 				return
 			}
 			return
