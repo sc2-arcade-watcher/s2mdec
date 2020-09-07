@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"compress/zlib"
 	"encoding/json"
 	"flag"
 	"io"
@@ -48,74 +50,119 @@ func main() {
 			log.Println(err)
 			return
 		}
-		// switch ext
-		switch strings.ToLower(filepath.Ext(fileIn.Name())) {
-		case ".s2mi":
-			// unlabeled
-			unlabeled, ok := s2mdec.NewVersionedDec(dataIn).ReadStruct().(s2prot.Struct)
-			if !ok {
-				log.Println("invalid s2mi")
-				return
-			}
-			// bFlagUnlabeled
-			var output s2prot.Struct
-			if bFlagUnlabeled {
-				output = unlabeled
-			} else {
-				labeled, err := s2mdec.ReadS2MI(unlabeled)
-				if err != nil {
-					log.Println("s2mi:", err)
+		{ // switch ext
+			ext := strings.ToLower(filepath.Ext(fileIn.Name()))
+			switch ext {
+			case ".s2mi":
+				// unlabeled
+				unlabeled, ok := s2mdec.NewVersionedDec(dataIn).ReadStruct().(s2prot.Struct)
+				if !ok {
+					log.Println("invalid s2mi")
 					return
 				}
-				output = labeled
-			}
-			// bFlagCompact
-			if errJSON := writeJSON(os.Stdout, output, !bFlagCompact); errJSON != nil {
-				log.Println("s2mi:", errJSON)
-				return
-			}
-			return
-		case ".s2mh":
-			// unlabeled
-			unlabeled, ok := s2mdec.NewVersionedDec(dataIn).ReadStruct().(s2prot.Struct)
-			if !ok {
-				log.Println("invalid s2mh")
-				return
-			}
-			// bFlagUnlabeled
-			var output s2prot.Struct
-			if bFlagUnlabeled {
-				output = unlabeled
-			} else {
-				labeled, err := s2mdec.ReadS2MH(unlabeled)
-				if err != nil {
-					log.Println("s2mh:", err)
+				// bFlagUnlabeled
+				var output s2prot.Struct
+				if bFlagUnlabeled {
+					output = unlabeled
+				} else {
+					labeled, err := s2mdec.ReadS2MI(unlabeled)
+					if err != nil {
+						log.Println("s2mi:", err)
+						return
+					}
+					output = labeled
+				}
+				// bFlagCompact
+				if errJSON := writeJSON(os.Stdout, output, !bFlagCompact); errJSON != nil {
+					log.Println("s2mi:", errJSON)
 					return
 				}
-				output = labeled
-			}
-			// bFlagCompact
-			if errJSON := writeJSON(os.Stdout, output, !bFlagCompact); errJSON != nil {
-				log.Println("s2mh:", errJSON)
+				return
+			case ".s2mh":
+				// unlabeled
+				unlabeled, ok := s2mdec.NewVersionedDec(dataIn).ReadStruct().(s2prot.Struct)
+				if !ok {
+					log.Println("invalid s2mh")
+					return
+				}
+				// bFlagUnlabeled
+				var output s2prot.Struct
+				if bFlagUnlabeled {
+					output = unlabeled
+				} else {
+					labeled, err := s2mdec.ReadS2MH(unlabeled)
+					if err != nil {
+						log.Println("s2mh:", err)
+						return
+					}
+					output = labeled
+				}
+				// bFlagCompact
+				if errJSON := writeJSON(os.Stdout, output, !bFlagCompact); errJSON != nil {
+					log.Println("s2mh:", errJSON)
+					return
+				}
+				return
+			case ".s2ml":
+				// translation
+				translation, err := s2mdec.ReadS2ML(dataIn)
+				if err != nil {
+					log.Println("s2ml:", err)
+					return
+				}
+				// bFlagCompact
+				if errJSON := writeJSON(os.Stdout, translation, !bFlagCompact); errJSON != nil {
+					log.Println("s2ml:", errJSON)
+					return
+				}
+				return
+			case ".s2gs":
+				// zlib
+				rZlib, errZlib := zlib.NewReader(bytes.NewReader(dataIn[16:]))
+				if errZlib != nil {
+					log.Println("s2gs:", errZlib)
+					return
+				}
+				defer rZlib.Close()
+				// dataIn2
+				dataIn2, errDataIn2 := ioutil.ReadAll(rZlib)
+				if errDataIn2 != nil {
+					log.Println("s2gs:", errDataIn2)
+					return
+				}
+				// unlabeled
+				unlabeled, ok := s2mdec.NewVersionedDec(dataIn2).ReadStruct().(s2prot.Struct)
+				if !ok {
+					log.Println("invalid s2gs")
+					return
+				}
+				// bFlagUnlabeled
+				var output s2prot.Struct
+				if bFlagUnlabeled {
+					output = unlabeled
+				} else {
+					output = unlabeled // not supported yet
+				}
+				// bFlagCompact
+				if errJSON := writeJSON(os.Stdout, output, !bFlagCompact); errJSON != nil {
+					log.Println("s2gs:", errJSON)
+					return
+				}
+				return
+			default:
+				// unlabeled
+				unlabeled, ok := s2mdec.NewVersionedDec(dataIn).ReadStruct().(s2prot.Struct)
+				if !ok {
+					log.Println("Unsupported file extension:", ext)
+					return
+				}
+				// bFlagCompact
+				if errJSON := writeJSON(os.Stdout, unlabeled, !bFlagCompact); errJSON != nil {
+					log.Println("Unsupported file extension:", ext)
+					return
+				}
 				return
 			}
-			return
-		case ".s2ml":
-			// translation
-			translation, err := s2mdec.ReadS2ML(dataIn)
-			if err != nil {
-				log.Println("s2ml:", err)
-				return
-			}
-			// bFlagCompact
-			if errJSON := writeJSON(os.Stdout, translation, !bFlagCompact); errJSON != nil {
-				log.Println("s2ml:", errJSON)
-				return
-			}
-			return
-		default:
-			log.Println("Unsupported file extension.")
-			return
 		}
 	case 2: // merging two files s2mh and s2ml
 		const nFiles = 2
@@ -139,36 +186,40 @@ func main() {
 		}
 		// prepare
 		s2mh, s2ml := s2prot.Struct(nil), s2mdec.MapLocale(nil)
-		// switch ext s2mh
-		switch strings.ToLower(filepath.Ext(fileIn[0].Name())) {
-		case ".s2mh":
-			unlabeled, ok := s2mdec.NewVersionedDec(dataIn[0]).ReadStruct().(s2prot.Struct)
-			if !ok {
-				log.Println("invalid s2mh")
+		{ // switch ext s2mh
+			ext := strings.ToLower(filepath.Ext(fileIn[0].Name()))
+			switch ext {
+			case ".s2mh":
+				unlabeled, ok := s2mdec.NewVersionedDec(dataIn[0]).ReadStruct().(s2prot.Struct)
+				if !ok {
+					log.Println("invalid s2mh")
+					return
+				}
+				var err error
+				s2mh, err = s2mdec.ReadS2MH(unlabeled)
+				if err != nil {
+					log.Println("s2mh:", err)
+					return
+				}
+			default:
+				log.Println("Unsupported file extension:", ext)
 				return
 			}
-			var err error
-			s2mh, err = s2mdec.ReadS2MH(unlabeled)
-			if err != nil {
-				log.Println("s2mh:", err)
-				return
-			}
-		default:
-			log.Println("Unsupported file extension.")
-			return
 		}
-		// switch ext s2ml
-		switch strings.ToLower(filepath.Ext(fileIn[1].Name())) {
-		case ".s2ml":
-			var err error
-			s2ml, err = s2mdec.ReadS2ML(dataIn[1])
-			if err != nil {
-				log.Println("s2ml:", err)
+		{ // switch ext s2ml
+			ext := strings.ToLower(filepath.Ext(fileIn[1].Name()))
+			switch ext {
+			case ".s2ml":
+				var err error
+				s2ml, err = s2mdec.ReadS2ML(dataIn[1])
+				if err != nil {
+					log.Println("s2ml:", err)
+					return
+				}
+			default:
+				log.Println("Unsupported file extension:", ext)
 				return
 			}
-		default:
-			log.Println("Unsupported file extension.")
-			return
 		}
 		// merged
 		merged, err := s2mdec.S2MHApplyS2ML(s2mh, s2ml, nil)
