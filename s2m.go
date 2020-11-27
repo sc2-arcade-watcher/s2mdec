@@ -882,13 +882,24 @@ func ReadS2MI(unlabeled s2prot.Struct) (retStruct s2prot.Struct, retError error)
 	if v := unlabeled.Structv("14"); len(v) != 4 {
 		return nil, makeErrStructLen(v)
 	}
+	if v := unlabeled.Structv("8"); len(v) != 2 {
+		return nil, makeErrStructLen(v)
+	}
 	// def
-	readToon := func(argStruct s2prot.Struct) s2prot.Struct {
+	readToonName := func(argStruct s2prot.Struct) s2prot.Struct {
 		return s2prot.Struct{
 			"regionId":  argStruct.Int("0"),
 			"app":       strings.Trim(argStruct.Stringv("1"), "\x00"),
 			"realmId":   argStruct.Int("2"),
 			"battleTag": argStruct.Stringv("3"),
+		}
+	}
+	readToonHandle := func(argStruct s2prot.Struct) s2prot.Struct {
+		return s2prot.Struct{
+			"regionId":  argStruct.Int("0"),
+			"app":       strings.Trim(argStruct.Stringv("1"), "\x00"),
+			"realmId":   argStruct.Int("2"),
+			"profileId": argStruct.Int("3"),
 		}
 	}
 	// set ret
@@ -903,10 +914,10 @@ func ReadS2MI(unlabeled s2prot.Struct) (retStruct s2prot.Struct, retError error)
 		"name":              unlabeled.Stringv("7"),
 		// "profileRecordAddress":  unlabeled.Structv("8"),
 		"isMod":                 unlabeled.Int("9") != 0, // bool
-		"authorToonName":        readToon(unlabeled.Structv("11")),
+		"authorToonName":        readToonName(unlabeled.Structv("11")),
 		"isLatestVersion":       unlabeled.Int("12") != 0, // bool
 		"mainLocale":            unlabeled.Stringv("13"),
-		"authorToonHandle":      readToon(unlabeled.Structv("14")),
+		"authorToonHandle":      readToonHandle(unlabeled.Structv("14")),
 		"isSkipInitialDownload": unlabeled.Int("15") != 0, // bool
 		"createdTime":           unlabeled.Int("16"),
 		"labels":                unlabeled.Array("17"),    // readArrayOfStrings(func(s string) string { return s }, unlabeled.Array("17")),
