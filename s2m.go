@@ -19,9 +19,9 @@ import (
 // - Struct:   map[string]interface{}
 // - Array:    []interface{}           (Not []string)
 // - Integer:  int64                   (Not int)
-// - String:   string                  (Not []byte only castable)
-// - Blob:     string                  (Not []byte only castable)
-// - Bytes:    string                  (Not []byte only castable)
+// - String:   string                  (Not []byte only convertable)
+// - Blob:     string                  (Not []byte only convertable)
+// - Bytes:    string                  (Not []byte only convertable)
 // - BitArray: s2prot.BitArr           (Value stored in s2prot.BitArr.Data []byte)
 // - Optional: (any of above)
 
